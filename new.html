@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GPU 字符流 / Matrix Shader Demo</title>
+  <style>
+    :root {
+      --bg: #06090a;
+      --panel: rgba(12, 18, 20, 0.82);
+      --line: rgba(120, 255, 170, 0.14);
+      --text: #e8fff1;
+      --muted: #8ab49a;
+      --accent: #45ff8b;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      overflow: hidden;
+    }
+
+    #app {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background:
+        radial-gradient(circle at top, rgba(60, 255, 130, 0.06), transparent 40%),
+        linear-gradient(180deg, #071011 0%, #030506 100%);
+    }
+
+    #glcanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #000;
+    }
+
+    #panel {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 20;
+      width: min(420px, calc(100vw - 32px));
+      padding: 14px 14px 12px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    #panel h1 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    #panel p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      min-width: 0;
+    }
+
+    input[type="range"], select, button, input[type="file"] {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      padding: 8px 10px;
+      font: inherit;
+    }
+
+    input[type="file"] {
+      padding: 8px;
+    }
+
+    button {
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(69, 255, 139, 0.35);
+      background: rgba(69, 255, 139, 0.08);
+    }
+
+    .row > button {
+      flex: 1 1 120px;
+    }
+
+    #status {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+      min-height: 1.2em;
+    }
+
+    #hud {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      z-index: 15;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(4, 10, 8, 0.55);
+      border: 1px solid rgba(120, 255, 170, 0.12);
+      color: rgba(232, 255, 241, 0.85);
+      font-size: 12px;
+      line-height: 1.5;
+      text-align: right;
+      backdrop-filter: blur(10px);
+    }
+
+    .tiny {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    #video { display: none; }
+    #atlasCanvas { display: none; }
+
+    @media (max-width: 768px) {
+      #panel {
+        top: 10px;
+        left: 10px;
+        width: calc(100vw - 20px);
+        padding: 12px;
+      }
+      .grid {
+        grid-template-columns: 1fr;
+      }
+      #hud {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <canvas id="glcanvas"></canvas>
+    <video id="video" playsinline muted loop crossorigin="anonymous"></video>
+    <canvas id="atlasCanvas" width="2048" height="128"></canvas>
+
+    <section id="panel">
+      <h1>GPU 字符流 / Matrix Shader Demo</h1>
+      <p>这是路线 C 的单文件版本：用浏览器 <b>WebGL</b> 在 GPU 上做实时字符渲染。先导入一个本地视频，再调参数。录制按钮会直接把当前画布保存成 WebM。</p>
+
+      <div class="row">
+        <input id="fileInput" type="file" accept="video/*" />
+      </div>
+
+      <div class="row">
+        <button id="playBtn">播放 / 暂停</button>
+        <button id="recordBtn">开始录制</button>
+        <button id="cameraBtn">摄像头</button>
+      </div>
+
+      <div class="grid">
+        <label>
+          字符集
+          <select id="charsetSelect">
+            <option value="digits">纯数字 9876543210</option>
+            <option value="ascii">ASCII @%#*+=-:. </option>
+            <option value="dense" selected>高密度 MWB@8XZSOa2r;:,. </option>
+            <option value="matrix">Matrix 风格 @#W$9876543210?!abc;:,. </option>
+          </select>
+        </label>
+
+        <label>
+          主题颜色
+          <select id="themeSelect">
+            <option value="matrix" selected>绿色 Matrix</option>
+            <option value="white">白色终端</option>
+            <option value="cyan">青色霓虹</option>
+            <option value="amber">琥珀 CRT</option>
+            <option value="source">保留源视频颜色</option>
+          </select>
+        </label>
+
+        <label>
+          列数：<span id="colsValue">140</span>
+          <input id="colsRange" type="range" min="60" max="260" step="1" value="140" />
+        </label>
+
+        <label>
+          流动强度：<span id="flowValue">0.55</span>
+          <input id="flowRange" type="range" min="0" max="1" step="0.01" value="0.55" />
+        </label>
+
+        <label>
+          对比度：<span id="contrastValue">1.20</span>
+          <input id="contrastRange" type="range" min="0.6" max="2.2" step="0.01" value="1.20" />
+        </label>
+
+        <label>
+          亮度：<span id="brightnessValue">0.02</span>
+          <input id="brightnessRange" type="range" min="-0.35" max="0.35" step="0.01" value="0.02" />
+        </label>
+
+        <label>
+          字符高宽比：<span id="glyphValue">1.95</span>
+          <input id="glyphRange" type="range" min="1.2" max="2.6" step="0.01" value="1.95" />
+        </label>
+
+        <label>
+          反转明暗
+          <select id="invertSelect">
+            <option value="0" selected>否</option>
+            <option value="1">是</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="status">等待导入视频…</div>
+      <div class="tiny">提示：路线 C 追求的是 GPU 实时预览和风格感，不是逐字逐帧精确排版，所以观感会更像“特效渲染器”。</div>
+    </section>
+
+    <div id="hud">
+      <div>WebGL GPU Shader</div>
+      <div id="hudInfo">No source</div>
+    </div>
+  </div>
+
+  <script>
+    const charsets = {
+      digits: '9876543210',
+      ascii: '@%#*+=-:. ',
+      dense: 'MWB@8XZSOa2r;:,. ',
+      matrix: '@#W$9876543210?!abc;:,. '
+    };
+
+    const themes = {
+      matrix: { tint: [0.27, 1.0, 0.52], sourceColor: 0.0 },
+      white:  { tint: [1.0, 1.0, 1.0],  sourceColor: 0.0 },
+      cyan:   { tint: [0.38, 0.95, 1.0], sourceColor: 0.0 },
+      amber:  { tint: [1.0, 0.72, 0.22], sourceColor: 0.0 },
+      source: { tint: [1.0, 1.0, 1.0], sourceColor: 1.0 }
+    };
+
+    const canvas = document.getElementById('glcanvas');
+    const video = document.getElementById('video');
+    const atlasCanvas = document.getElementById('atlasCanvas');
+    const fileInput = document.getElementById('fileInput');
+    const playBtn = document.getElementById('playBtn');
+    const recordBtn = document.getElementById('recordBtn');
+    const cameraBtn = document.getElementById('cameraBtn');
+    const statusEl = document.getElementById('status');
+    const hudInfo = document.getElementById('hudInfo');
+
+    const controls = {
+      colsRange: document.getElementById('colsRange'),
+      colsValue: document.getElementById('colsValue'),
+      flowRange: document.getElementById('flowRange'),
+      flowValue: document.getElementById('flowValue'),
+      contrastRange: document.getElementById('contrastRange'),
+      contrastValue: document.getElementById('contrastValue'),
+      brightnessRange: document.getElementById('brightnessRange'),
+      brightnessValue: document.getElementById('brightnessValue'),
+      glyphRange: document.getElementById('glyphRange'),
+      glyphValue: document.getElementById('glyphValue'),
+      charsetSelect: document.getElementById('charsetSelect'),
+      themeSelect: document.getElementById('themeSelect'),
+      invertSelect: document.getElementById('invertSelect')
+    };
+
+    function syncLabel(rangeEl, labelEl, digits = 2) {
+      const v = Number(rangeEl.value);
+      labelEl.textContent = Number.isInteger(v) ? String(v) : v.toFixed(digits);
+    }
+
+    syncLabel(controls.colsRange, controls.colsValue, 0);
+    syncLabel(controls.flowRange, controls.flowValue, 2);
+    syncLabel(controls.contrastRange, controls.contrastValue, 2);
+    syncLabel(controls.brightnessRange, controls.brightnessValue, 2);
+    syncLabel(controls.glyphRange, controls.glyphValue, 2);
+
+    for (const [rangeId, valueId, digits] of [
+      ['colsRange', 'colsValue', 0],
+      ['flowRange', 'flowValue', 2],
+      ['contrastRange', 'contrastValue', 2],
+      ['brightnessRange', 'brightnessValue', 2],
+      ['glyphRange', 'glyphValue', 2]
+    ]) {
+      controls[rangeId].addEventListener('input', () => syncLabel(controls[rangeId], controls[valueId], digits));
+    }
+
+    const gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: true, alpha: false });
+    if (!gl) {
+      alert('当前浏览器不支持 WebGL，无法使用 GPU shader 版本。请换 Chrome / Edge 桌面端。');
+      throw new Error('WebGL unsupported');
+    }
+
+    const vertexShaderSource = `
+      attribute vec2 a_position;
+      varying vec2 v_uv;
+      void main() {
+        v_uv = a_position * 0.5 + 0.5;
+        gl_Position = vec4(a_position, 0.0, 1.0);
+      }
+    `;
+
+    const fragmentShaderSource = `
+      precision mediump float;
+
+      varying vec2 v_uv;
+      uniform sampler2D u_video;
+      uniform sampler2D u_atlas;
+      uniform vec2 u_resolution;
+      uniform float u_time;
+      uniform float u_cols;
+      uniform float u_charsetSize;
+      uniform vec3 u_tint;
+      uniform float u_sourceColor;
+      uniform float u_brightness;
+      uniform float u_contrast;
+      uniform float u_flow;
+      uniform float u_glyphAspect;
+      uniform float u_invert;
+
+      float rand(float x) {
+        return fract(sin(x * 127.13 + 19.97) * 43758.5453123);
+      }
+
+      void main() {
+        vec2 res = u_resolution;
+        float cols = max(1.0, u_cols);
+        float cellW = res.x / cols;
+        float cellH = max(1.0, cellW * u_glyphAspect);
+
+        vec2 frag = gl_FragCoord.xy;
+        vec2 cell = floor(vec2(frag.x / cellW, frag.y / cellH));
+        vec2 local = fract(vec2(frag.x / cellW, frag.y / cellH));
+        vec2 grid = max(vec2(1.0), floor(vec2(res.x / cellW, res.y / cellH)));
+
+        vec2 center = (cell + 0.5) / grid;
+        center.y = 1.0 - center.y;
+
+        vec3 src = texture2D(u_video, center).rgb;
+        float luma = dot(src, vec3(0.299, 0.587, 0.114));
+        luma = clamp((luma - 0.5) * u_contrast + 0.5 + u_brightness, 0.0, 1.0);
+
+        float indexValue = (u_invert > 0.5) ? luma : (1.0 - luma);
+        float idx = floor(indexValue * (u_charsetSize - 1.0) + 0.0001);
+
+        float colRand = rand(cell.x + 3.1);
+        float speed = mix(0.20, 1.25, colRand);
+        float head = fract(u_time * speed * (0.18 + u_flow * 0.9) + colRand * 1.7);
+        float yNorm = (cell.y + 0.5) / grid.y;
+        float distToHead = abs((1.0 - yNorm) - head);
+        float rain = smoothstep(0.32, 0.0, distToHead) * u_flow;
+
+        idx = clamp(floor(idx + rain * 2.5), 0.0, u_charsetSize - 1.0);
+
+        vec2 atlasUV = vec2((idx + local.x) / u_charsetSize, local.y);
+        float glyph = texture2D(u_atlas, atlasUV).r;
+
+        vec3 mono = u_tint * (0.18 + 0.82 * luma);
+        vec3 colorized = mix(mono, src, u_sourceColor);
+        vec3 color = colorized * glyph;
+
+        color += u_tint * rain * glyph * 0.55;
+        color += u_tint * rain * 0.05;
+
+        float scan = 0.97 + 0.03 * sin(gl_FragCoord.y * 1.1 + u_time * 7.0);
+        color *= scan;
+
+        float vignette = smoothstep(1.15, 0.2, distance(v_uv, vec2(0.5)));
+        color *= vignette;
+
+        vec3 bg = u_tint * (0.010 + rain * 0.018);
+        gl_FragColor = vec4(max(bg, color), 1.0);
+      }
+    `;
+
+    function compileShader(type, source) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const msg = gl.getShaderInfoLog(shader);
+        gl.deleteShader(shader);
+        throw new Error(msg);
+      }
+      return shader;
+    }
+
+    function createProgram(vsSource, fsSource) {
+      const program = gl.createProgram();
+      const vs = compileShader(gl.VERTEX_SHADER, vsSource);
+      const fs = compileShader(gl.FRAGMENT_SHADER, fsSource);
+      gl.attachShader(program, vs);
+      gl.attachShader(program, fs);
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        const msg = gl.getProgramInfoLog(program);
+        throw new Error(msg);
+      }
+      return program;
+    }
+
+    const program = createProgram(vertexShaderSource, fragmentShaderSource);
+    gl.useProgram(program);
+
+    const quad = new Float32Array([
+      -1, -1,
+       1, -1,
+      -1,  1,
+      -1,  1,
+       1, -1,
+       1,  1,
+    ]);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+
+    const aPosition = gl.getAttribLocation(program, 'a_position');
+    gl.enableVertexAttribArray(aPosition);
+    gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
+
+    const uniforms = {
+      video: gl.getUniformLocation(program, 'u_video'),
+      atlas: gl.getUniformLocation(program, 'u_atlas'),
+      resolution: gl.getUniformLocation(program, 'u_resolution'),
+      time: gl.getUniformLocation(program, 'u_time'),
+      cols: gl.getUniformLocation(program, 'u_cols'),
+      charsetSize: gl.getUniformLocation(program, 'u_charsetSize'),
+      tint: gl.getUniformLocation(program, 'u_tint'),
+      sourceColor: gl.getUniformLocation(program, 'u_sourceColor'),
+      brightness: gl.getUniformLocation(program, 'u_brightness'),
+      contrast: gl.getUniformLocation(program, 'u_contrast'),
+      flow: gl.getUniformLocation(program, 'u_flow'),
+      glyphAspect: gl.getUniformLocation(program, 'u_glyphAspect'),
+      invert: gl.getUniformLocation(program, 'u_invert')
+    };
+
+    const videoTexture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, videoTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      1,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      new Uint8Array([0, 0, 0, 255])
+    );
+
+    const atlasTexture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, atlasTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    gl.uniform1i(uniforms.video, 0);
+    gl.uniform1i(uniforms.atlas, 1);
+
+    function buildAtlas(charset) {
+      const ctx = atlasCanvas.getContext('2d');
+      const chars = [...charset];
+      const cellW = 96;
+      const cellH = 128;
+      atlasCanvas.width = cellW * chars.length;
+      atlasCanvas.height = cellH;
+
+      ctx.clearRect(0, 0, atlasCanvas.width, atlasCanvas.height);
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, atlasCanvas.width, atlasCanvas.height);
+      ctx.fillStyle = 'white';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 92px Consolas, Menlo, Monaco, monospace';
+
+      for (let i = 0; i < chars.length; i++) {
+        const x = i * cellW + cellW * 0.5;
+        const y = cellH * 0.54;
+        ctx.fillText(chars[i], x, y);
+      }
+
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, atlasTexture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlasCanvas);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.uniform1f(uniforms.charsetSize, chars.length);
+    }
+
+    buildAtlas(charsets[controls.charsetSelect.value]);
+
+    function resizeCanvas() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(2, Math.floor(window.innerWidth * dpr));
+      const h = Math.max(2, Math.floor(window.innerHeight * dpr));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    let currentObjectUrl = null;
+    let stream = null;
+    let usingCamera = false;
+
+    async function loadVideoFile(file) {
+      if (!file) return;
+      usingCamera = false;
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+      currentObjectUrl = URL.createObjectURL(file);
+      video.srcObject = null;
+      video.src = currentObjectUrl;
+      video.muted = true;
+      video.loop = true;
+      try {
+        await video.play();
+        statusEl.textContent = `已加载视频：${file.name}`;
+      } catch (err) {
+        statusEl.textContent = '视频已加载，点击“播放 / 暂停”开始。';
+      }
+    }
+
+    async function loadCamera() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        statusEl.textContent = '当前浏览器不支持摄像头接口。';
+        return;
+      }
+      try {
+        if (currentObjectUrl) {
+          URL.revokeObjectURL(currentObjectUrl);
+          currentObjectUrl = null;
+        }
+        if (stream) {
+          stream.getTracks().forEach(t => t.stop());
+        }
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        usingCamera = true;
+        video.src = '';
+        video.srcObject = stream;
+        video.muted = true;
+        video.loop = true;
+        await video.play();
+        statusEl.textContent = '摄像头已接入。';
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = '摄像头打开失败：' + err.message;
+      }
+    }
+
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      await loadVideoFile(file);
+    });
+
+    playBtn.addEventListener('click', async () => {
+      if (!video.src && !video.srcObject) {
+        statusEl.textContent = '先导入视频或启用摄像头。';
+        return;
+      }
+      if (video.paused) {
+        try {
+          await video.play();
+          statusEl.textContent = usingCamera ? '摄像头采集中。' : '视频播放中。';
+        } catch (err) {
+          statusEl.textContent = '播放失败：' + err.message;
+        }
+      } else {
+        video.pause();
+        statusEl.textContent = '已暂停。';
+      }
+    });
+
+    cameraBtn.addEventListener('click', loadCamera);
+
+    controls.charsetSelect.addEventListener('change', () => {
+      buildAtlas(charsets[controls.charsetSelect.value]);
+    });
+
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let isRecording = false;
+
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    recordBtn.addEventListener('click', () => {
+      if (!isRecording) {
+        const stream = canvas.captureStream(30);
+        const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+          ? 'video/webm;codecs=vp9'
+          : 'video/webm';
+        mediaRecorder = new MediaRecorder(stream, { mimeType });
+        recordedChunks = [];
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+        };
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(recordedChunks, { type: mimeType });
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+          downloadBlob(blob, `matrix-ascii-${stamp}.webm`);
+          statusEl.textContent = '录制完成，已开始下载 WebM。';
+        };
+        mediaRecorder.start();
+        isRecording = true;
+        recordBtn.textContent = '停止录制';
+        statusEl.textContent = '正在录制当前 GPU 输出…';
+      } else {
+        mediaRecorder.stop();
+        isRecording = false;
+        recordBtn.textContent = '开始录制';
+      }
+    });
+
+    function updateVideoTexture() {
+      if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, videoTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+      }
+    }
+
+    function applyUniforms(timeSec) {
+      const theme = themes[controls.themeSelect.value];
+      gl.uniform2f(uniforms.resolution, canvas.width, canvas.height);
+      gl.uniform1f(uniforms.time, timeSec);
+      gl.uniform1f(uniforms.cols, Number(controls.colsRange.value));
+      gl.uniform3fv(uniforms.tint, new Float32Array(theme.tint));
+      gl.uniform1f(uniforms.sourceColor, theme.sourceColor);
+      gl.uniform1f(uniforms.brightness, Number(controls.brightnessRange.value));
+      gl.uniform1f(uniforms.contrast, Number(controls.contrastRange.value));
+      gl.uniform1f(uniforms.flow, Number(controls.flowRange.value));
+      gl.uniform1f(uniforms.glyphAspect, Number(controls.glyphRange.value));
+      gl.uniform1f(uniforms.invert, Number(controls.invertSelect.value));
+    }
+
+    function updateHUD() {
+      const source = usingCamera ? 'Camera' : (video.currentSrc ? 'Video File' : 'No source');
+      const vw = video.videoWidth || 0;
+      const vh = video.videoHeight || 0;
+      const cols = controls.colsRange.value;
+      hudInfo.textContent = `${source} · ${vw}x${vh} · cols ${cols} · ${controls.themeSelect.value}`;
+    }
+
+    let startTime = performance.now();
+    function render(now) {
+      resizeCanvas();
+      updateVideoTexture();
+      applyUniforms((now - startTime) * 0.001);
+      updateHUD();
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+
+    statusEl.textContent = '等待导入视频… 你也可以直接点“摄像头”。';
+  </script>
+</body>
+</html>

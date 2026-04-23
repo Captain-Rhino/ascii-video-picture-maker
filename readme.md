@@ -1,95 +1,167 @@
 # ascii_video_meme
 
-这是一个把视频“变形”的小项目，核心有两个脚本：一个负责把普通视频转成 ASCII 或数字字符风格的视频，另一个负责从指定时间区间截取视频片段，并且保持音视频同步。
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-required-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
+[![License](https://img.shields.io/badge/License-MIT-blue)](#license)
+[![Status](https://img.shields.io/badge/Status-Working-brightgreen)](#)
 
-## 项目的有趣之处
+把普通视频变成 ASCII 或数字字符风格的视频。  
+这个项目目前是一个轻量的本地工具链：先裁剪素材，再做字符化渲染，最后输出可分享的视频结果（可自动保留音频）。
 
-这个目录里的两个脚本放在一起看，会很像一个“视频二创工作台”。你可以先用截取脚本把素材切到你想要的片段，再用 ASCII 脚本把这段视频变成字符画风格，得到一种介于复古终端和动态海报之间的视觉效果。
+## Why This Project
 
-它有几个比较有意思的点：
+很多 ASCII 视频工具要么效果单一，要么导出流程比较重。这个仓库的目标很简单：
 
-1. 视频可以直接变成字符画，支持常规 ASCII 风格，也支持纯数字流风格。
-2. 截取脚本支持从任意起始时间切到任意结束时间，或者只指定起始时间一直切到视频结尾，适合快速提取高能片段。
-3. 两个脚本都尽量保留音频处理逻辑，输出结果不会只是“有画面没声音”的静态文件。
-4. 整体实现很轻量，主要依赖 Python 和 ffmpeg，适合本地直接跑。
+1. 本地直接跑，不依赖复杂服务。
+2. 参数足够直观，能快速试出风格。
+3. 同时保留剪辑和渲染两步，方便做视频二创。
 
-## 文件说明
+## Features
 
-- [video_to_ascii.py](video_to_ascii.py)：把视频逐帧转成 ASCII 或数字字符风格，并可自动合并原音频。
-- [cut_24_to_end.py](cut_24_to_end.py)：从指定时间区间截取视频片段，默认从 24 秒开始截到结尾，也支持指定 `--end` 截到任意时间点。
+- 视频转 ASCII 字符风格。
+- 视频转纯数字流风格。
+- 可控制列数、分辨率、帧率、字体、明暗反转。
+- 自动尝试保留原音频（依赖 ffmpeg）。
+- 支持从任意时间区间裁剪视频片段。
+- 输入无音轨时自动降级为无音频输出。
 
-## 运行依赖
+## Project Structure
 
-### Python 包
+- [video_to_ascii.py](video_to_ascii.py): 视频逐帧转字符视频，并可自动合并原音频。
+- [cut_mid_to_end.py](cut_mid_to_end.py): 按起止时间裁剪视频，保持音视频同步。
+- [new.html](new.html): WebGL 实时字符流实验页（本地浏览器可直接打开）。
+- [what to improve.md](what%20to%20improve.md): 后续迭代方向草案。
 
-安装以下依赖：
+## Requirements
 
-    pip install opencv-python pillow numpy
+### Python
 
-### 系统工具
+- Python 3.10+
+- 依赖包：opencv-python, pillow, numpy
 
-需要安装 ffmpeg，并确保 ffmpeg 和 ffprobe 都已加入 PATH。
+安装命令：
 
-ffmpeg 用于视频编码、音频合并和时间截取；ffprobe 用于检测输入视频是否包含音轨。
+```bash
+pip install opencv-python pillow numpy
+```
 
-## 运行方式
+### System Tools
 
-### 1. 截取视频从指定时间到结尾
+- ffmpeg
+- ffprobe
 
-默认会在当前目录生成 24_to_endtime_cut.mp4。
+请确保 ffmpeg 和 ffprobe 都已加入系统 PATH。
 
-    python cut_24_to_end.py --input 你的原视频.mp4
+## Quick Start
 
-如果你想自定义输出文件名：
+### 1) 裁剪视频片段
 
-    python cut_24_to_end.py --input 你的原视频.mp4 --output my_cut.mp4
+从 24 秒裁到结尾：
 
-如果你想改起始时间：
+```bash
+python cut_mid_to_end.py --input input.mp4
+```
 
-    python cut_24_to_end.py --input 你的原视频.mp4 --start 24
+指定输出文件名：
 
-### 2. 截取视频从 x 秒到 y 秒
+```bash
+python cut_mid_to_end.py --input input.mp4 --output my_cut.mp4
+```
 
-只要满足 `y > x`，就可以直接截取任意时间区间：
+按区间裁剪（例如 24 到 60 秒）：
 
-    python cut_24_to_end.py --input 你的原视频.mp4 --start 24 --end 60
+```bash
+python cut_mid_to_end.py --input input.mp4 --start 24 --end 60
+```
 
-如果不指定 `--output`，脚本会根据起止时间自动生成输出文件名，例如 `24_to_60_cut.mp4`。
+### 2) 转成 ASCII 视频
 
-### 3. 把视频转成 ASCII 字符视频
+基础用法：
 
-最基础的用法：
+```bash
+python video_to_ascii.py --input input.mp4 --output ascii_out.mp4
+```
 
-    python video_to_ascii.py --input input.mp4 --output ascii_out.mp4
+数字流风格：
 
-纯数字风格：
+```bash
+python video_to_ascii.py --input input.mp4 --output digit_out.mp4 --mode digits
+```
 
-    python video_to_ascii.py --input input.mp4 --output digit_out.mp4 --mode digits
+提高字符细节：
 
-提高字符列数，让画面更细腻：
-
-    python video_to_ascii.py --input input.mp4 --output out.mp4 --cols 160
+```bash
+python video_to_ascii.py --input input.mp4 --output out.mp4 --cols 160
+```
 
 自定义输出分辨率：
 
-    python video_to_ascii.py --input input.mp4 --output out.mp4 --resolution 1280x720
+```bash
+python video_to_ascii.py --input input.mp4 --output out.mp4 --resolution 1280x720
+```
 
-如果只想导出无音频版本：
+导出无音频版本：
 
-    python video_to_ascii.py --input input.mp4 --output out.mp4 --no-audio
+```bash
+python video_to_ascii.py --input input.mp4 --output out.mp4 --no-audio
+```
 
-## 推荐工作流
+## Common Workflow
 
-如果你想先截素材，再做字符风格转换，可以按下面顺序来：
+推荐顺序：
 
-1. 先用 cut_24_to_end.py 从任意起止时间切出目标片段。
-2. 再把生成的视频丢给 video_to_ascii.py，输出 ASCII 或数字字符版。
+1. 先用 cut_mid_to_end.py 切出目标片段。
+2. 再把片段交给 video_to_ascii.py 做字符化导出。
 
-这样比较适合做短片段的二创、演示素材或者终端风格的视觉效果。
+这个流程比较适合短视频二创、片段混剪、终端风动态背景制作。
 
-## 注意事项
+## Parameters (video_to_ascii.py)
 
-- 输入视频路径需要真实存在。
-- 如果系统里没有 ffmpeg，截取和音频合并都会失败。
-- ASCII 视频对参数比较敏感，cols 越大越清晰，但速度也会更慢。
-- 如果原视频没有音轨，脚本会自动输出无音频版本。
+- --input: 输入视频路径。
+- --output: 输出视频路径。
+- --resolution: 输出分辨率，source 或 WIDTHxHEIGHT。
+- --cols: 字符列数，越大越清晰，速度越慢。
+- --fps: 输出帧率，默认跟随原视频。
+- --font_size: 字体大小。
+- --font: 字体路径，可留空自动寻找。
+- --mode: ascii 或 digits。
+- --invert: 反转明暗映射。
+- --no-audio: 不合并原音频。
+
+## Parameters (cut_mid_to_end.py)
+
+- --input: 输入视频路径。
+- --output: 输出视频路径，不填则自动命名。
+- --start: 起始秒数，默认 24。
+- --end: 结束秒数，不填则截到结尾。
+
+## Troubleshooting
+
+- 报错找不到 ffmpeg 或 ffprobe：确认已安装并加入 PATH。
+- 输出没有声音：先确认输入视频本身有音轨，再确认本机 ffmpeg 可用。
+- 渲染很慢：降低 cols 或输出分辨率。
+- 字符比例看着不对：调整 font_size、cols、resolution 的组合。
+
+## Roadmap
+
+后续方向已整理在 [what to improve.md](what%20to%20improve.md)，包括：
+
+- 图片与动图支持
+- 彩色 ASCII 模式
+- 编码体积控制
+- 随机风格模式
+- 预设系统与一键工作流
+- 性能优化与 GPU 路线
+
+## Contributing
+
+欢迎提 Issue 和 PR。  
+如果你想贡献代码，建议优先从这几类问题入手：
+
+1. 参数体验和默认值优化。
+2. 导出速度与体积控制。
+3. 新的字符映射或主题风格。
+
+## License
+
+MIT

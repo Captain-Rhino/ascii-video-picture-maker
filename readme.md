@@ -20,6 +20,8 @@
 
 - 视频转 ASCII 字符风格。
 - 视频转纯数字流风格。
+- 图片转 ASCII 字符图。
+- 批量图片转 ASCII。
 - 可控制列数、分辨率、帧率、字体、明暗反转。
 - 自动尝试保留原音频（依赖 ffmpeg）。
 - 支持从任意时间区间裁剪视频片段。
@@ -28,6 +30,7 @@
 ## Project Structure
 
 - [video_to_ascii.py](video_to_ascii.py): 视频逐帧转字符视频，并可自动合并原音频。
+- [image_2_ascii.py](image_2_ascii.py): 单图或批量图片转字符图，支持导出图片或文本。
 - [cut_mid_to_end.py](cut_mid_to_end.py): 按起止时间裁剪视频，保持音视频同步。
 - [new.html](new.html): WebGL 实时字符流实验页（本地浏览器可直接打开）。
 - [what to improve.md](what%20to%20improve.md): 后续迭代方向草案。
@@ -104,6 +107,26 @@ python video_to_ascii.py --input input.mp4 --output out.mp4 --resolution 1280x72
 
 ```bash
 python video_to_ascii.py --input input.mp4 --output out.mp4 --no-audio
+```
+
+### 3) 转成 ASCII 图片
+
+单张图片输出为 ASCII 图片：
+
+```bash
+python image_2_ascii.py --input input.jpg --output out.png
+```
+
+单张图片输出为文本：
+
+```bash
+python image_2_ascii.py --input input.jpg --output out.txt
+```
+
+批量处理文件夹内图片：
+
+```bash
+python image_2_ascii.py --input images --output ascii_out
 ```
 
 ## Common Workflow
